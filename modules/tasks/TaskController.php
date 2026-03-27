@@ -56,7 +56,7 @@ class TaskController {
         $fields=[]; $p=[':id'=>$id];
         // Auto set completed_at
         if (isset($d['status']) && $d['status']==='completed') { $fields[]='completed_at=NOW()'; }
-        foreach($allowed as $k){ if(isset($d[$k])){ $fields[]="$k=:$k"; $p[":$k"]=$d[$k]; } }
+        foreach($allowed as $k){ if(array_key_exists($k, $d)){ $fields[]="$k=:$k"; $p[":$k"]=$d[$k]; } }
         if($fields) $this->db->prepare("UPDATE tasks SET ".implode(',',$fields)." WHERE id=:id")->execute($p);
         $this->show($id);
     }

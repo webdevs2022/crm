@@ -11,10 +11,10 @@ class ContractModel {
         if (!empty($f['status']))     { $w[]='c.status=:st';      $p[':st']=$f['status']; }
         if (!empty($f['search']))     { $w[]='(c.title LIKE :s OR c.contract_number LIKE :s)'; $p[':s']='%'.$f['search'].'%'; }
         $where = $w ? 'WHERE '.implode(' AND ',$w) : '';
-        $sql = "SELECT c.*, u.name AS faculty_name, co.title AS course_title, co.code AS course_code,
+        $sql = "SELECT c.*, f.name AS faculty_name, co.title AS course_title, co.course_number,
                        (SELECT COALESCE(SUM(amount),0) FROM payments p WHERE p.contract_id=c.id AND p.status='paid') AS paid_amount
                 FROM contracts c
-                LEFT JOIN users u ON u.id=c.faculty_id
+                LEFT JOIN faculty f ON f.id=c.faculty_id
                 LEFT JOIN courses co ON co.id=c.course_id
                 $where ORDER BY c.created_at DESC";
         $stmt=$this->db->prepare($sql); $stmt->execute($p);
@@ -22,10 +22,10 @@ class ContractModel {
     }
 
     public function getById(int $id): ?array {
-        $sql="SELECT c.*, u.name AS faculty_name, u.email AS faculty_email,
-                     co.title AS course_title, co.code AS course_code,
+        $sql="SELECT c.*, f.name AS faculty_name, f.email AS faculty_email,
+                     co.title AS course_title, co.course_number,
                      (SELECT COALESCE(SUM(amount),0) FROM payments p WHERE p.contract_id=c.id AND p.status='paid') AS paid_amount
-              FROM contracts c LEFT JOIN users u ON u.id=c.faculty_id
+              FROM contracts c LEFT JOIN faculty f ON f.id=c.faculty_id
               LEFT JOIN courses co ON co.id=c.course_id WHERE c.id=:id";
         $stmt=$this->db->prepare($sql); $stmt->execute([':id'=>$id]);
         return $stmt->fetch()?:null;
@@ -45,7 +45,7 @@ class ContractModel {
     public function update(int $id, array $d): bool {
         $allowed=['title','start_date','end_date','total_amount','currency','status','terms','signed_at'];
         $fields=[]; $p=[':id'=>$id];
-        foreach($allowed as $f){ if(isset($d[$f])){ $fields[]="$f=:$f"; $p[":$f"]=$d[$f]; } }
+        foreach($allowed as $f){ if(array_key_exists($f, $d)){ $fields[]="$f=:$f"; $p[":$f"]=$d[$f]; } }
         if(!$fields) return false;
         return $this->db->prepare("UPDATE contracts SET ".implode(',',$fields)." WHERE id=:id")->execute($p);
     }

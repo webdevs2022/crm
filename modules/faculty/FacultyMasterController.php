@@ -52,7 +52,7 @@ class FacultyMasterModel {
     public function update(int $id, array $d): bool {
         $allowed = ['name','mobile','email','city','state','country','designation','status'];
         $fields  = []; $p = [':id' => $id];
-        foreach ($allowed as $k) { if (isset($d[$k])) { $fields[] = "$k=:$k"; $p[":$k"] = $d[$k]; } }
+        foreach ($allowed as $k) { if (array_key_exists($k, $d)) { $fields[] = "$k=:$k"; $p[":$k"] = $d[$k]; } }
         if (!$fields) return false;
         return $this->db->prepare("UPDATE faculty SET " . implode(',', $fields) . " WHERE id=:id")->execute($p);
     }

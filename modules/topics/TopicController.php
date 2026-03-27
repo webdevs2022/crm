@@ -11,7 +11,16 @@ class TopicController {
 
         if ($method === 'GET' && $id && $sub === 'stats')      { successResponse($this->model->getStatsByCourse($id)); return; }
         if ($method === 'GET' && $id)                           { $r=$this->model->getById($id); $r?successResponse($r):errorResponse('Not found',404); return; }
-        if ($method === 'GET')                                  { $cid=(int)($_GET['course_id']??0); if(!$cid)errorResponse('course_id required'); successResponse($this->model->getByCourse($cid,$_GET)); return; }
+        if ($method === 'GET') {
+            $cid=(int)($_GET['course_id']??0);
+            if($cid) {
+                $res = $this->model->getByCourse($cid,$_GET);
+                successResponse($res['topics'] ?? []);
+            } else {
+                successResponse($this->model->getAll());
+            }
+            return;
+        }
         if ($method === 'POST' && $id && $sub === 'reschedule') { $this->reschedule($id); return; }
         if ($method === 'POST')                                 { $this->store(); return; }
         if (in_array($method,['PUT','PATCH']) && $id)           { $this->update($id); return; }

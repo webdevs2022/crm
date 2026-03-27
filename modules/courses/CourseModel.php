@@ -18,7 +18,12 @@ class CourseModel {
         $w=['1=1']; $p=[];
         if($allowedIds!==null){
             if(empty($allowedIds)) return['courses'=>[],'pagination'=>getPagination(0)];
-            $ph=implode(',',array_fill(0,count($allowedIds),'?'));
+            $phList = [];
+            foreach($allowedIds as $i => $id) {
+                $p[":aid$i"] = $id;
+                $phList[] = ":aid$i";
+            }
+            $ph=implode(',', $phList);
             $w[]="c.id IN ($ph)";
         }
         if(!empty($filters['search'])){$w[]='(c.title LIKE :s OR c.course_number LIKE :s OR c.category LIKE :s)';$p[':s']='%'.$filters['search'].'%';}
@@ -26,7 +31,6 @@ class CourseModel {
         if(!empty($filters['level'])){$w[]='c.level=:lv';$p[':lv']=$filters['level'];}
         $where=implode(' AND ',$w);
         $cStmt=$this->db->prepare("SELECT COUNT(*) FROM courses c WHERE $where");
-        if($allowedIds!==null){foreach($allowedIds as $i=>$id)$cStmt->bindValue($i+1,$id,PDO::PARAM_INT);}
         foreach($p as $k=>$v)$cStmt->bindValue($k,$v);
         $cStmt->execute();
         $total=(int)$cStmt->fetchColumn();
@@ -34,7 +38,6 @@ class CourseModel {
         $pag=getPagination($total,$page,$pp);
         $sql="SELECT c.*,u.name AS coordinator_name,cb.name AS created_by_name,COUNT(DISTINCT t.id) AS topic_count,SUM(t.status='completed') AS topics_done FROM courses c LEFT JOIN users u ON u.id=c.coordinator_id LEFT JOIN users cb ON cb.id=c.created_by LEFT JOIN topics t ON t.course_id=c.id WHERE $where GROUP BY c.id ORDER BY c.created_at DESC LIMIT :lim OFFSET :off";
         $stmt=$this->db->prepare($sql);
-        if($allowedIds!==null){foreach($allowedIds as $i=>$id)$stmt->bindValue($i+1,$id,PDO::PARAM_INT);}
         foreach($p as $k=>$v)$stmt->bindValue($k,$v);
         $stmt->bindValue(':lim',$pag['per_page'],PDO::PARAM_INT);$stmt->bindValue(':off',$pag['offset'],PDO::PARAM_INT);
         $stmt->execute();
@@ -70,7 +73,7 @@ class CourseModel {
 
     public function update(int $id, array $d): bool {
         $allowed=['title','description','category','level','status','coordinator_id'];$fields=[];$p=[':id'=>$id];
-        foreach($allowed as $k){if(isset($d[$k])){$fields[]="$k=:$k";$p[":$k"]=$d[$k];}}
+        foreach($allowed as $k){if(array_key_exists($k,$d)){$fields[]="$k=:$k";$p[":$k"]=$d[$k];}}
         if(!$fields)return false;
         return $this->db->prepare("UPDATE courses SET ".implode(',',$fields)." WHERE id=:id")->execute($p);
     }

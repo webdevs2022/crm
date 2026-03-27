@@ -102,4 +102,12 @@ class TopicModel {
         $stmt->execute([':cid' => $courseId]);
         return $stmt->fetch();
     }
+    public function getAll(): array {
+        $sql = "SELECT t.*, f.name AS faculty_name, c.title AS course_title, c.course_number
+                FROM topics t
+                LEFT JOIN faculty f ON f.id = t.faculty_id
+                LEFT JOIN courses c ON c.id = t.course_id
+                ORDER BY t.course_id, t.sort_order ASC";
+        return $this->db->query($sql)->fetchAll();
+    }
 }

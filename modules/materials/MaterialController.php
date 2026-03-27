@@ -65,24 +65,29 @@ class MaterialModel {
     }
 
     public function update(int $id, array $d): bool {
-        $allowed = ['material_type','received_count','uploaded_count','notes'];
+        $allowed = ['course_id', 'topic_id', 'material_type', 'received_count', 'uploaded_count', 'notes', 'status'];
         $fields = []; $p = [':id' => $id];
-        foreach ($allowed as $k) {
-            if (isset($d[$k])) { $fields[] = "$k=:$k"; $p[":$k"] = $d[$k]; }
-        }
-        // Recalculate status if counts changed
-        if (isset($d['received_count']) || isset($d['uploaded_count'])) {
+        
+        // Recalculate status if counts are being updated
+        if (array_key_exists('received_count', $d) || array_key_exists('uploaded_count', $d)) {
             $row = $this->getById($id);
-            $recv = (int)($d['received_count'] ?? $row['received_count'] ?? 0);
-            $upl  = min((int)($d['uploaded_count'] ?? $row['uploaded_count'] ?? 0), $recv);
-            $status = $recv === 0 ? 'pending' : ($upl >= $recv ? 'complete' : ($upl > 0 ? 'partial' : 'pending'));
-            $fields[] = 'status=:status'; $p[':status'] = $status;
-            if (!isset($d['uploaded_count']) && isset($d['received_count'])) {
-                $fields[] = 'received_count=:received_count'; $p[':received_count'] = $recv;
+            $recv = (int)(array_key_exists('received_count', $d) ? $d['received_count'] : $row['received_count']);
+            $upl  = (int)(array_key_exists('uploaded_count', $d) ? $d['uploaded_count'] : $row['uploaded_count']);
+            $upl  = min($upl, $recv);
+            $d['status'] = $recv === 0 ? 'pending' : ($upl >= $recv ? 'complete' : ($upl > 0 ? 'partial' : 'pending'));
+            $d['uploaded_count'] = $upl; // Ensure uploaded never exceeds received
+        }
+
+        foreach ($allowed as $k) {
+            if (array_key_exists($k, $d)) { 
+                $fields[] = "$k=:$k"; 
+                $p[":$k"] = $d[$k]; 
             }
         }
+
         if (!$fields) return false;
-        return $this->db->prepare("UPDATE materials SET " . implode(',', $fields) . " WHERE id=:id")->execute($p);
+        $sql = "UPDATE materials SET " . implode(', ', $fields) . " WHERE id=:id";
+        return $this->db->prepare($sql)->execute($p);
     }
 
     public function delete(int $id): bool {

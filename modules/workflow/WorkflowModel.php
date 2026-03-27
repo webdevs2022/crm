@@ -89,4 +89,20 @@ class WorkflowModel {
                 GROUP BY c.id ORDER BY c.title";
         return $this->db->query($sql)->fetchAll();
     }
+    public function getAllSteps(): array {
+        $sql = "SELECT w.*, u.name AS completed_by_name
+                FROM workflow_steps w
+                LEFT JOIN users u ON w.completed_by = u.id
+                ORDER BY w.topic_id, w.step_order ASC";
+        return $this->db->query($sql)->fetchAll();
+    }
+    public function update(int $id, array $d): bool {
+        $allowed = ['is_completed', 'completed_by', 'completed_at'];
+        $fields = []; $p = [':id' => $id];
+        foreach ($allowed as $k) {
+            if (array_key_exists($k, $d)) { $fields[] = "$k=:$k"; $p[":$k"] = $d[$k]; }
+        }
+        if (!$fields) return false;
+        return $this->db->prepare("UPDATE workflow_steps SET " . implode(',', $fields) . " WHERE id=:id")->execute($p);
+    }
 }

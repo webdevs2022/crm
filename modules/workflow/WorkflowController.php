@@ -7,17 +7,27 @@ class WorkflowController {
 
     public function handle(string $method, array $seg): void {
         $id  = isset($seg[0]) && is_numeric($seg[0]) ? (int)$seg[0] : null;
+        $act = $seg[0] ?? null;
         $sub = $seg[1] ?? null;
 
-        if ($method==='GET' && $sub==='course')      { $this->byCourse($id); return; }
-        if ($method==='GET' && !$id)                  { $this->allProgress(); return; }
+        if ($method==='GET' && $act==='steps')       { $this->allSteps(); return; }
+        if ($method==='GET' && $id && $sub==='course') { $this->byCourse($id); return; }
+        if ($method==='GET' && !$id && !$act)        { $this->allProgress(); return; }
         if ($method==='GET' && $id)                   { $this->byTopic($id); return; }
+        if (in_array($method, ['PUT', 'PATCH']) && $id) { $this->patchStep($id); return; }
         if ($method==='POST' && $id && $sub==='init') { $this->init($id); return; }
         if ($method==='POST' && $id && $sub==='toggle'){ $this->toggle($id); return; }
         errorResponse('Unknown workflow endpoint', 404);
     }
 
+    private function patchStep(int $id): void {
+        $d = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $this->model->update($id, $d);
+        successResponse(null, 'Step updated');
+    }
+
     private function allProgress():void { successResponse($this->model->getAllProgress()); }
+    private function allSteps():void    { successResponse($this->model->getAllSteps()); }
     private function byCourse(int $id):void { successResponse($this->model->getProgressByCourse($id)); }
     private function byTopic(int $id):void  { successResponse($this->model->getByTopic($id)); }
 

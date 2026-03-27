@@ -12,9 +12,9 @@ class PaymentModel {
         if (!empty($f['status']))      { $w[]='p.status=:st'; $p[':st']=$f['status']; }
         if (!empty($f['search']))      { $w[]='p.invoice_number LIKE :s'; $p[':s']='%'.$f['search'].'%'; }
         $where = $w ? 'WHERE '.implode(' AND ',$w) : '';
-        $sql = "SELECT p.*, u.name AS faculty_name, c.contract_number, c.title AS contract_title
+        $sql = "SELECT p.*, f.name AS faculty_name, c.contract_number, c.title AS contract_title
                 FROM payments p
-                LEFT JOIN users u ON u.id=p.faculty_id
+                LEFT JOIN faculty f ON f.id=p.faculty_id
                 LEFT JOIN contracts c ON c.id=p.contract_id
                 $where ORDER BY p.created_at DESC";
         $stmt=$this->db->prepare($sql); $stmt->execute($p);
@@ -22,8 +22,8 @@ class PaymentModel {
     }
 
     public function getById(int $id): ?array {
-        $sql="SELECT p.*,u.name AS faculty_name,u.email AS faculty_email,c.contract_number,c.title AS contract_title
-              FROM payments p LEFT JOIN users u ON u.id=p.faculty_id
+        $sql="SELECT p.*, f.name AS faculty_name, f.email AS faculty_email, c.contract_number, c.title AS contract_title
+              FROM payments p LEFT JOIN faculty f ON f.id=p.faculty_id
               LEFT JOIN contracts c ON c.id=p.contract_id WHERE p.id=:id";
         $stmt=$this->db->prepare($sql); $stmt->execute([':id'=>$id]);
         return $stmt->fetch()?:null;
@@ -44,7 +44,7 @@ class PaymentModel {
     public function update(int $id, array $d): bool {
         $allowed=['amount','status','due_date','paid_date','payment_method','transaction_id','notes'];
         $fields=[]; $p=[':id'=>$id];
-        foreach($allowed as $f){ if(isset($d[$f])){ $fields[]="$f=:$f"; $p[":$f"]=$d[$f]; } }
+        foreach($allowed as $f){ if(array_key_exists($f, $d)){ $fields[]="$f=:$f"; $p[":$f"]=$d[$f]; } }
         if(!$fields) return false;
         return $this->db->prepare("UPDATE payments SET ".implode(',',$fields)." WHERE id=:id")->execute($p);
     }
