@@ -10,17 +10,29 @@ class WorkflowModel {
     private PDO $db;
 
     // Doc-defined checklists
+    // Combined steps based on new requirements
     const RECORDED_STEPS = [
-        ['key' => 'email_sent',          'label' => 'Email Sent'],
-        ['key' => 'meeting_link_shared', 'label' => 'Meeting Link Shared'],
-        ['key' => 'recording_done',      'label' => 'Recording Done'],
-        ['key' => 'editing_done',        'label' => 'Editing Done'],
-        ['key' => 'uploaded',            'label' => 'Uploaded'],
+        ['key' => 'email_sent',          'label' => 'STEP 1: Email Sent?'],
+        ['key' => 'reply_received',      'label' => 'STEP 2: Reply Received?'],
+        ['key' => 'reminder_sent',       'label' => 'STEP 2.1: Reminder Email Sent?'],
+        ['key' => 'recording_scheduled', 'label' => 'STEP 3: Recording Scheduled?'],
+        ['key' => 'recording_shared',    'label' => 'STEP 4: Recording Link Shared?'],
+        ['key' => 'recording_done',      'label' => 'STEP 5: Recording Done?'],
+        ['key' => 'editing_started',     'label' => 'STEP 6: Video Editing: Started'],
+        ['key' => 'editing_done',        'label' => 'STEP 7: Video Editing: Completed'],
+        ['key' => 'uploaded',            'label' => 'STEP 8: Final Uploaded?'],
     ];
+
     const LIVE_STEPS = [
-        ['key' => 'banner_created',      'label' => 'Banner Created'],
-        ['key' => 'website_updated',     'label' => 'Website Updated'],
-        ['key' => 'info_shared_faculty', 'label' => 'Info Shared to Faculty'],
+        ['key' => 'email_sent',          'label' => 'STEP 1: Email Sent?'],
+        ['key' => 'reply_received',      'label' => 'STEP 2: Reply Received?'],
+        ['key' => 'reminder_sent',       'label' => 'STEP 2.1: Reminder Email Sent?'],
+        ['key' => 'scheduling_done',     'label' => 'STEP 3: Date & Time Received?'],
+        ['key' => 'flyer_created',       'label' => 'STEP 4.1: Flyer Created?'],
+        ['key' => 'flyer_circulated',    'label' => 'STEP 4.2: Flyer Circulated?'],
+        ['key' => 'session_link_sent',   'label' => 'STEP 4.3: Session Link Sent?'],
+        ['key' => 'lecture_completed',   'label' => 'STEP 5: Live Lecture Completed?'],
+        ['key' => 'uploaded',            'label' => 'STEP 6: Post Session: Uploaded?'],
     ];
 
     public function __construct() { $this->db = db(); }
@@ -48,10 +60,44 @@ class WorkflowModel {
     }
 
     public function toggleStep(int $topicId, string $stepKey, int $userId): array {
-        $stmt = $this->db->prepare("SELECT * FROM workflow_steps WHERE topic_id=:tid AND step_key=:key");
-        $stmt->execute([':tid' => $topicId, ':key' => $stepKey]);
-        $step = $stmt->fetch();
-        if (!$step) return ['error' => 'Step not found'];
+        $stmt = $this->db->prepare("SELECT * FROM workflow_steps WHERE topic_id=:tid ORDER BY step_order ASC");
+        $stmt->execute([':tid' => $topicId]);
+        $allSteps = $stmt->fetchAll();
+        
+        $targetIndex = -1;
+        foreach ($allSteps as $i => $s) {
+            if ($s['step_key'] === $stepKey) { $targetIndex = $i; break; }
+        }
+        
+        if ($targetIndex === -1) return ['error' => 'Step not found'];
+        $step = $allSteps[$targetIndex];
+
+        // NEW LOGIC: Cannot proceed unless previous step completed
+        if (!$step['is_completed'] && $targetIndex > 0) {
+                $isReminder = ($step['step_key'] === 'reminder_sent');
+                $prevStepIdx = $targetIndex - 1;
+                $prevStep = $allSteps[$prevStepIdx];
+
+                // Special Case: reminder_sent doesn't require reply_received to be done (it's the alternative)
+                if ($isReminder && $prevStep['step_key'] === 'reply_received') {
+                    // Allowed
+                } 
+                // Special Case: Next step after reminder_sent only needs reply_received (or reminder_sent)
+                else if ($prevStep['step_key'] === 'reminder_sent') {
+                    $replyValue = $allSteps[$prevStepIdx - 1] ?? null; // reply_received
+                    if ($replyValue && !$replyValue['is_completed']) {
+                        return ['error' => 'Step "' . $replyValue['step_label'] . '" must be completed first'];
+                    }
+                }
+                else if (!$prevStep['is_completed']) {
+                    return ['error' => 'Previous step "' . $prevStep['step_label'] . '" must be completed first'];
+                }
+        } else if ($step['is_completed']) {
+            // Optional: prevent unchecking if later steps are completed?
+            if ($targetIndex < count($allSteps) - 1 && $allSteps[$targetIndex+1]['is_completed']) {
+                return ['error' => 'Cannot uncheck while subsequent steps are completed'];
+            }
+        }
 
         $done = $step['is_completed'] ? 0 : 1;
         $this->db->prepare(

@@ -107,26 +107,6 @@ h2{font-size:22px;font-weight:700;margin-bottom:6px;text-align:center}
       <i class="bi bi-box-arrow-in-right"></i> Sign In
     </button>
   </form>
-
-  <div class="divider"></div>
-
-  <div class="demo-creds">
-    <h4>Demo Accounts — all passwords: <strong>password</strong></h4>
-    <?php
-    $demos = [
-        ['owner', 'owner@crm.com', 'Owner'],
-        ['admin', 'admin@crm.com', 'Admin'],
-        ['coordinator', 'sarah@crm.com', 'Assigned course'],
-    ];
-    foreach ($demos as [$role, $email, $desc]):
-    ?>
-    <div class="cred-row">
-      <span class="cred-role"><?= ucfirst($role) ?></span>
-      <span class="cred-email"><?= $email ?></span>
-      <button class="cred-btn" onclick="fillLogin('<?= $email ?>')">Use</button>
-    </div>
-    <?php endforeach; ?>
-  </div>
 </div>
 
 <script>
@@ -135,11 +115,6 @@ function togglePw(){
   const i=document.getElementById('eye-icon');
   f.type=f.type==='password'?'text':'password';
   i.className=f.type==='password'?'bi bi-eye':'bi bi-eye-slash';
-}
-function fillLogin(email){
-  document.getElementById('email').value=email;
-  document.getElementById('password').value='password';
-  document.getElementById('password').focus();
 }
 </script>
 </body>

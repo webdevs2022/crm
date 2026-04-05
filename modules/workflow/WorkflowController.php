@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/WorkflowModel.php';
+require_once __DIR__ . '/../../includes/auth.php';
+
 
 class WorkflowController {
     private WorkflowModel $model;
@@ -21,6 +23,7 @@ class WorkflowController {
     }
 
     private function patchStep(int $id): void {
+        Auth::requireRole('admin');
         $d = json_decode(file_get_contents('php://input'), true) ?? $_POST;
         $this->model->update($id, $d);
         successResponse(null, 'Step updated');
@@ -32,6 +35,7 @@ class WorkflowController {
     private function byTopic(int $id):void  { successResponse($this->model->getByTopic($id)); }
 
     private function init(int $topicId):void {
+        Auth::requireRole('admin');
         $data = json_decode(file_get_contents('php://input'),true)??[];
         $type = $data['lecture_type'] ?? 'recorded';
         $this->model->initForTopic($topicId, $type);
@@ -39,9 +43,14 @@ class WorkflowController {
     }
 
     private function toggle(int $topicId):void {
+        Auth::requireRole('admin');
         $data = json_decode(file_get_contents('php://input'),true)??[];
         if (empty($data['step_key'])) errorResponse('step_key required');
         $r = $this->model->toggleStep($topicId, $data['step_key'], (int)($data['user_id']??1));
+        if (isset($r['error'])) {
+            errorResponse($r['error'], 400);
+            return;
+        }
         successResponse($r, 'Step updated');
     }
 }

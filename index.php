@@ -68,6 +68,18 @@ $user = Auth::user();
         background: var(--border2);
         border-radius: 99px;
       }
+      
+      /* Chrome, Safari, Edge, Opera */
+      input::-webkit-outer-spin-button,
+      input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+
+      /* Firefox */
+      input[type=number] {
+        -moz-appearance: textfield;
+      }
 
       /* ── LOGIN ── */
       #login-screen {
@@ -990,6 +1002,23 @@ $user = Auth::user();
       }
 
       /* ── WORKFLOW ── */
+      .active-step {
+        background: rgba(79, 124, 255, 0.04);
+        border-radius: 12px;
+        padding: 12px;
+        margin: -5px -12px 15px -12px;
+        border: 1px solid rgba(79, 124, 255, 0.15);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+      }
+      @keyframes pulse-workflow {
+        0% { box-shadow: 0 0 0 0 rgba(79, 124, 255, 0.3); border-color: var(--accent); }
+        70% { box-shadow: 0 0 0 8px rgba(79, 124, 255, 0); border-color: var(--accent); }
+        100% { box-shadow: 0 0 0 0 rgba(79, 124, 255, 0); border-color: var(--accent); }
+      }
+      .pulse {
+        animation: pulse-workflow 2s infinite;
+        background: var(--surface) !important;
+      }
       .wft {
         display: flex;
         flex-direction: column;
@@ -1636,6 +1665,7 @@ $user = Auth::user();
         contracts: [],
         payments: [],
         tasks: [],
+        users: [],
       };
 
       async function apiFetch(endpoint, options = {}) {
@@ -1656,7 +1686,7 @@ $user = Auth::user();
 
       async function loadAppData() {
         try {
-          const [f, c, t, m, ct, p, tk, ws] = await Promise.all([
+          const pms = [
             apiFetch('faculty'),
             apiFetch('courses'),
             apiFetch('topics'),
@@ -1665,7 +1695,12 @@ $user = Auth::user();
             apiFetch('payments'),
             apiFetch('tasks'),
             apiFetch('workflow/steps')
-          ]);
+          ];
+          if (hasRole('admin')) pms.push(apiFetch('users'));
+
+          const results = await Promise.all(pms);
+          const [f, c, t, m, ct, p, tk, ws, u] = results;
+
           D.faculty = f || [];
           D.courses = (c && c.courses) ? c.courses : (Array.isArray(c) ? c : []);
           D.topics = t || [];
@@ -1673,6 +1708,7 @@ $user = Auth::user();
           D.contracts = ct || [];
           D.payments = p || [];
           D.tasks = tk || [];
+          D.users = u || [];
           
           // Group workflow steps by topic_id
           D.workflow = {};
@@ -1796,7 +1832,7 @@ $user = Auth::user();
         gi("M-icon").innerHTML =
           `<i class="bi ${cfg.icon || "bi-pencil"}"></i>`;
         gi("M-title").textContent = cfg.title || "";
-        gi("M-sub").textContent = cfg.sub || "";
+        gi("M-sub").innerHTML = cfg.sub || "";
         gi("M-body").innerHTML = cfg.body || "";
         gi("M-foot").innerHTML =
           cfg.foot ||
@@ -1836,7 +1872,11 @@ $user = Auth::user();
       // ═══════════════════════════════════════════════════════════════
       let CU = null;
       const ROLES = { owner: 4, admin: 3, accounts: 2, coordinator: 1 };
-      const hasRole = (min) => (ROLES[CU?.role] || 0) >= (ROLES[min] || 99);
+      const hasRole = (min) => {
+        const r = CU?.role?.toLowerCase();
+        const m = min?.toLowerCase();
+        return (ROLES[r] || 0) >= (ROLES[m] || 99);
+      };
       const allowedCourses = () =>
         hasRole("admin")
           ? D.courses
@@ -2067,7 +2107,7 @@ $user = Auth::user();
       // ═══════════════════════════════════════════════════════════════
       // COURSES
       // ═══════════════════════════════════════════════════════════════
-      let cView = "cards",
+      var cView = "cards",
         cSearch = "",
         cSt = "",
         cLv = "";
@@ -2493,7 +2533,7 @@ $user = Auth::user();
         { k: "info_shared_faculty", lbl: "Info Shared to Faculty" },
       ];
 
-      let wfCF = "";
+      var wfCF = "";
       function pgWF() {
         setTop(
           "Workflow",
@@ -2532,15 +2572,21 @@ $user = Auth::user();
       }
 
       async function initWF(tid, type) {
+        if (!hasRole("admin")) {
+          toast("Only Admin or Owner can initialize workflow", "err");
+          return;
+        }
         try {
           await apiFetch(`workflow/${tid}/init`, {
-            method: 'POST',
-            body: JSON.stringify({ lecture_type: type })
+            method: "POST",
+            body: JSON.stringify({ lecture_type: type }),
           });
           toast("Workflow initialized");
-          loadAppData();
+          await loadAppData();
         } catch (err) {}
       }
+
+      var reminderState = {};
 
       function openWF2(tid) {
         const t = D.topics.find((x) => x.id == tid);
@@ -2548,36 +2594,100 @@ $user = Auth::user();
         const wf = D.workflow[tid] || [];
         const dn = wf.filter((s) => s.done).length;
         const pct = wf.length ? Math.round((dn / wf.length) * 100) : 0;
-        const liveFooter =
-          t.lecture_type === "live"
-            ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)"><div class="sec-t" style="margin-bottom:8px">Final Status</div><div style="display:flex;gap:7px;flex-wrap:wrap"><button class="btn bs bsm" onclick="setTopicSt(${tid},'completed')"><i class="bi bi-check2-all"></i> Completed</button><button class="btn bd bsm" onclick="setTopicSt(${tid},'cancelled')"><i class="bi bi-x-circle"></i> Cancelled</button><button class="btn bw bsm" onclick="CM();setTimeout(()=>openReschedule(${tid}),200)"><i class="bi bi-calendar-x"></i> Rescheduled</button></div></div>`
-            : "";
+        const canEdit = hasRole("admin");
+
+        // Sequential Display Logic with skipping
+        let displayWf = [];
+        let nextIdx = -1;
+        
+        wf.forEach((s, i) => {
+           let skip = false;
+           if (s.k === 'reminder_sent') {
+              const prev = wf[i-1];
+              // Only show if: 1. It's already done OR 2. Reminder was explicitly requested
+              if (!s.done && (!prev.done && !reminderState[tid])) skip = true;
+           }
+           if (!skip) displayWf.push(s);
+        });
+        
+        nextIdx = displayWf.findIndex(s => !s.done);
+        
         OM({
           icon: "bi-diagram-3",
           title: t.title,
-          sub: `${t.lecture_type === "live" ? "Live Event" : "Recording"} checklist · ${dn}/${wf.length} complete`,
+          sub: `<div style="margin-bottom:6px">${t.lecture_type === "live" ? "Live Event" : "Recording"} Workflow · ${dn}/${wf.length} Tasks Complete</div>
+                <div style="font-size:11px;color:var(--text3);background:var(--bg3);padding:5px 9px;border-radius:6px;border:1px solid var(--border)">
+                  <strong>Prerequisites:</strong> Course Created &rarr; Coordinator Assigned &rarr; Topic Added
+                </div>`,
           lg: true,
-          foot: `<button class="btn bg" onclick="CM()">Close</button>`,
-          body: `<div style="margin-bottom:12px"><div class="pb-lbl"><span>Progress</span><span>${pct}%</span></div><div class="pb-bg"><div class="pb-fill" style="width:${pct}%"></div></div></div>
-    <div class="wft">${wf
-      .map(
-        (s) => `<div class="wfs" id="ws-${tid}-${s.k}">
-      <div class="wfd${s.done ? " done" : ""}" onclick="togWF(${tid},'${s.k}')"><i class="bi ${s.done ? "bi-check" : "bi-circle"}"></i></div>
-      <div class="wfi"><div class="wfl" style="${s.done ? "text-decoration:line-through;color:var(--text3)" : ""}">${s.lbl}</div>
-      <div class="wfm">${s.done ? `Completed ${s.at || ""} by ${s.by || ""}` : "Not completed yet"}</div></div>
-    </div>`,
-      )
-      .join("")}</div>${liveFooter}`,
+          foot: `<button class="btn bg" onclick="CM()">Close Checklist</button>`,
+          body: `
+    <div style="margin-bottom:18px">
+      <div class="pb-lbl"><span>Workflow Progress</span><span>${pct}%</span></div>
+      <div class="pb-bg" style="height:8px"><div class="pb-fill" style="width:${pct}%"></div></div>
+    </div>
+    <div class="wft">
+      ${displayWf.map((s, i) => {
+        const isDone = s.done;
+        let isLocked = i > nextIdx;
+        let isNext = i === nextIdx;
+        
+        // SPECIAL BRANCHING: Unlock 2.1 if "No" was clicked on 2
+        if (s.k === 'reminder_sent' && reminderState[tid] && !isDone) {
+           isLocked = false;
+           isNext = true; // Highlight this as the next action
+        }
+
+        return `
+        <div class="wfs ${isNext ? 'active-step' : ''}" style="opacity: ${isLocked ? '0.4' : '1'}">
+          <div class="wfd ${isDone ? 'done' : ''} ${isNext ? 'pulse' : ''}">
+            <i class="bi ${isDone ? 'bi-check-lg' : 'bi-circle'}"></i>
+          </div>
+          <div class="wfi">
+            <div class="wfl" style="${isDone ? 'text-decoration:line-through;opacity:0.6' : ''}">${s.lbl}</div>
+            <div class="wfm">
+               ${isDone 
+                 ? `<span style="color:var(--green)"><i class="bi bi-calendar-check"></i> Done ${fmtD(s.at)} by ${s.by || 'Admin'}</span>` 
+                 : !isLocked 
+                   ? `<div style="margin-top:10px;display:flex;gap:8px">
+                        <button class="btn bp bsm" onclick="togWF(${tid},'${s.k}')">Yes, Done</button>
+                        ${s.k === 'reply_received' 
+                          ? `<button class="btn bg bsm" onclick="
+                              reminderState[${tid}]=true;
+                              const rStep = D.workflow[${tid}]?.find(x=>x.k==='reminder_sent');
+                              if(rStep && rStep.done) { 
+                                 togWF(${tid},'reminder_sent'); 
+                              } else {
+                                 openWF2(${tid});
+                                 setTimeout(()=>document.getElementById('ws-${tid}-reminder_sent')?.scrollIntoView({behavior:'smooth'}),100);
+                              }
+                              toast('Reminder Loop Reset','inf')
+                            ">No, Send Reminder</button>`
+                          : `<button class="btn bg bsm" onclick="toast('Please complete this step to proceed','inf')">Not Yet</button>`
+                        }
+                      </div>`
+                   : `<span style="color:var(--text3)"><i class="bi bi-lock-fill"></i> Complete previous steps first</span>`
+               }
+            </div>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>`
         });
       }
 
       async function togWF(tid, k) {
+        if (!hasRole("admin")) {
+          toast("Only Admin or Owner can toggle workflow steps", "err");
+          return;
+        }
         try {
           await apiFetch(`workflow/${tid}/toggle`, {
-            method: 'POST',
-            body: JSON.stringify({ step_key: k, user_id: CU.id })
+            method: "POST",
+            body: JSON.stringify({ step_key: k, user_id: CU.id }),
           });
-          loadAppData();
+          await loadAppData();
+          openWF2(tid); // Refresh modal content
         } catch (err) {}
       }
       function setTopicSt(tid, st) {
@@ -2592,7 +2702,7 @@ $user = Auth::user();
       // ═══════════════════════════════════════════════════════════════
       // MATERIALS
       // ═══════════════════════════════════════════════════════════════
-      let mSrch = "",
+      var mSrch = "",
         mTy = "",
         mCid = "";
       function pgMat() {
@@ -2603,14 +2713,14 @@ $user = Auth::user();
         );
         let list = [...D.materials];
         if (mCid) list = list.filter((m) => m.course_id == mCid);
-        if (mTy) list = list.filter((m) => m.mtype === mTy);
+        if (mTy) list = list.filter((m) => m.material_type === mTy);
         if (mSrch)
           list = list.filter(
             (m) =>
-              (MAT[m.mtype] || "")
+              (MAT[m.material_type] || "")
                 .toLowerCase()
                 .includes(mSrch.toLowerCase()) ||
-              (tname(m.tid) || "").toLowerCase().includes(mSrch.toLowerCase()),
+              (m.topic_title || "").toLowerCase().includes(mSrch.toLowerCase()),
           );
         const totR = D.materials.reduce((a, m) => a + m.received_count, 0),
           totU = D.materials.reduce((a, m) => a + m.uploaded_count, 0);
@@ -2688,7 +2798,7 @@ $user = Auth::user();
         const tyO = Object.entries(MAT)
           .map(
             ([v, l]) =>
-              `<option value="${v}" ${(m?.mtype || "mcq") === v ? "selected" : ""}>${l}</option>`,
+              `<option value="${v}" ${(m?.material_type || "mcq") === v ? "selected" : ""}>${l}</option>`,
           )
           .join("");
         OM({
@@ -2761,7 +2871,7 @@ $user = Auth::user();
       // ═══════════════════════════════════════════════════════════════
       // CONTRACTS
       // ═══════════════════════════════════════════════════════════════
-      let ctSrch = "",
+      var ctSrch = "",
         ctSt = "",
         fSrch = "";
       function pgCnt() {
@@ -2899,7 +3009,7 @@ $user = Auth::user();
       // ═══════════════════════════════════════════════════════════════
       // PAYMENTS
       // ═══════════════════════════════════════════════════════════════
-      let pySrch = "",
+      var pySrch = "",
         pySt = "",
         pyFid = "";
       function pgPay() {
@@ -3190,7 +3300,7 @@ $user = Auth::user();
       // ═══════════════════════════════════════════════════════════════
       // TASKS
       // ═══════════════════════════════════════════════════════════════
-      let tskSt = "",
+      var tskSt = "",
         tskPr = "",
         tskSrch = "";
       function pgTasks() {
@@ -3270,7 +3380,7 @@ $user = Auth::user();
 
       function openTskF(id) {
         const t = id ? D.tasks.find((x) => x.id == id) : null;
-        const uo = DEMO_USERS.map(
+        const uo = D.users.map(
           (u) =>
             `<option value="${u.id}" ${t?.assigned_to == u.id ? "selected" : ""}>${u.name} (${u.role})</option>`,
         ).join("");
@@ -3323,20 +3433,8 @@ $user = Auth::user();
           loadAppData();
         } catch (err) {}
       }
-      function delTsk(id, name) {
-        ODM(`Delete task "${name}"?`, async () => {
-          try {
-            await apiFetch(`tasks/${id}`, { method: 'DELETE' });
-            toast("Deleted");
-            loadAppData();
-          } catch (err) {}
-        });
-      }
 
-      // ═══════════════════════════════════════════════════════════════
-      // USERS (Admin only)
-      // ═══════════════════════════════════════════════════════════════
-      let uSrch = "";
+      var uSrch = "";
       function pgUsers() {
         if (!hasRole("admin")) {
           toast("Access denied", "err");
@@ -3345,9 +3443,9 @@ $user = Auth::user();
         setTop(
           "Users",
           "System user management",
-          `<button class="btn bg bsm" onclick="pgUsers()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>`,
+          `<button class="btn bg bsm" onclick="pgUsers()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>${hasRole("owner") ? `<button class="btn bp" onclick="openUF()"><i class="bi bi-plus-lg"></i> New User</button>` : ""}`,
         );
-        let list = [...DEMO_USERS];
+        let list = [...D.users];
         if (uSrch)
           list = list.filter(
             (u) =>
@@ -3355,21 +3453,96 @@ $user = Auth::user();
               u.email.toLowerCase().includes(uSrch.toLowerCase()),
           );
         setC(`
+  <div class="sg">
+    <div class="sc" style="--ca:var(--accent);--ci:var(--ag)"><div class="sc-icon"><i class="bi bi-people-fill"></i></div><div class="sc-val">${D.users.length}</div><div class="sc-lbl">Total Users</div></div>
+    <div class="sc" style="--ca:var(--green);--ci:rgba(34,211,160,.12)"><div class="sc-icon"><i class="bi bi-person-check-fill"></i></div><div class="sc-val">${D.users.filter(u=>u.status==='active').length}</div><div class="sc-lbl">Active</div></div>
+    <div class="sc" style="--ca:var(--red);--ci:rgba(240,81,108,.12)"><div class="sc-icon"><i class="bi bi-person-x-fill"></i></div><div class="sc-val">${D.users.filter(u=>u.status==='inactive').length}</div><div class="sc-lbl">Inactive</div></div>
+  </div>
   <div class="tb">
     <div class="sbw"><i class="bi bi-search"></i><input type="text" id="u-srch" placeholder="Search system users…" value="${uSrch}" oninput="goSrch('uSrch',this.value,pgUsers,'u-srch')"></div>
   </div>
-  <div class="tw"><table class="ct"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th></tr></thead>
+  <div class="tw"><table class="ct"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
   <tbody>${list.map(
     (u) => `<tr>
     <td><div style="display:flex;align-items:center;gap:10px"><div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff">${u.name.charAt(0)}</div><strong>${u.name}</strong></div></td>
     <td style="color:var(--text2)">${u.email}</td>
-    <td>${badge(u.role, u.role === "owner" ? "active" : u.role === "admin" ? "active_role" : u.role === "accounts" ? "in_progress" : "recorded")}</td>
-    <td>${badge("active")}</td>
+    <td>${badge(u.role)}</td>
+    <td>${badge(u.status)}</td>
+    <td style="text-align:right">
+      ${hasRole("owner") ? `
+        <button class="btn bg bsm bic" onclick="openUF(${u.id})" title="Edit User"><i class="bi bi-pencil"></i></button>
+        ${u.id !== CU.id ? `<button class="btn bd bsm bic" onclick="delUser(${u.id}, '${esc(u.name)}')" title="Delete User"><i class="bi bi-trash3"></i></button>` : ''}
+      ` : ""}
+    </td>
   </tr>`,
-  ).join("")}</tbody></table></div>
-  <div style="margin-top:14px;padding:13px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);font-size:13px;color:var(--text3)">
-    <i class="bi bi-info-circle" style="color:var(--accent)"></i> Users are managed in the database. Connect to your PHP backend to add/edit users via the API.
-  </div>`);
+  ).join("")}</tbody></table></div>`);
+      }
+
+      function openUF(id) {
+        const u = id ? D.users.find((x) => x.id == id) : null;
+        OM({
+          icon: "bi-person-gear",
+          title: u ? "Edit User" : "New User",
+          sub: "System access controls",
+          save: `saveUF(${id || "null"})`,
+          body: `
+    <div class="fg"><label class="fl">Full Name <span>*</span></label><input class="fi" id="uf-n" value="${esc(u?.name || "")}"></div>
+    <div class="fg"><label class="fl">Email Address <span>*</span></label><input type="email" class="fi" id="uf-e" value="${esc(u?.email || "")}"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">Role</label><select class="fsi" id="uf-r">${["owner", "admin", "accounts", "coordinator"].map((r) => `<option value="${r}" ${u?.role === r ? "selected" : ""}>${r.charAt(0).toUpperCase() + r.slice(1)}</option>`).join("")}</select></div>
+      <div class="fg"><label class="fl">Status</label><select class="fsi" id="uf-s"><option value="active" ${u?.status === 'active' || !u ? 'selected' : ''}>Active</option><option value="inactive" ${u?.status === 'inactive' ? 'selected' : ''}>Inactive</option></select></div>
+    </div>
+    <div class="fg"><label class="fl">Phone</label><input class="fi" id="uf-p" value="${esc(u?.phone || "")}"></div>
+    <div class="fg"><label class="fl">${u ? "New Password (leave blank to keep)" : "Password <span>*</span>"}</label><input type="password" class="fi" id="uf-pw"></div>`,
+        });
+      }
+
+      async function saveUF(id) {
+        const n = fV("uf-n"), e = fV("uf-e"), pw = fV("uf-pw");
+        if (!n || !e || (!id && !pw)) {
+          toast("Required fields missing", "err");
+          return;
+        }
+        const data = {
+          name: n,
+          email: e,
+          role: sV("uf-r"),
+          status: sV("uf-s"),
+          phone: fV("uf-p"),
+          password: pw
+        };
+        try {
+          if (id) {
+            await apiFetch(`users/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+            toast("User updated");
+          } else {
+            await apiFetch(`users`, { method: 'POST', body: JSON.stringify(data) });
+            toast("User created");
+          }
+          CM();
+          loadAppData();
+        } catch (err) {}
+      }
+
+      function delUser(id, name) {
+        ODM(`Are you sure you want to delete user "${name}"? This action cannot be undone.`, async () => {
+          try {
+            await apiFetch(`users/${id}`, { method: 'DELETE' });
+            toast("User deleted", "suc");
+            loadAppData();
+          } catch (err) {
+            toast(err.message, "err");
+          }
+        });
+      }
+      function delTsk(id, name) {
+        ODM(`Delete task "${name}"?`, async () => {
+          try {
+            await apiFetch(`tasks/${id}`, { method: 'DELETE' });
+            toast("Deleted");
+            loadAppData();
+          } catch (err) {}
+        });
       }
 
       // ═══════════════════════════════════════════════════════════════

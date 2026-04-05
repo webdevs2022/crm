@@ -50,6 +50,7 @@ require_once __DIR__ . '/../modules/payments/PaymentController.php';
 require_once __DIR__ . '/../modules/dashboard/DashboardController.php';
 require_once __DIR__ . '/../modules/faculty/FacultyMasterController.php';
 require_once __DIR__ . '/../modules/tasks/TaskController.php';
+require_once __DIR__ . '/../modules/users/UserController.php';
 
 match($resource) {
     'courses'   => (new CourseController())->handle($method, $rest),
@@ -61,5 +62,6 @@ match($resource) {
     'dashboard' => (new DashboardController())->handle($method, $rest),
     'faculty'   => (new FacultyMasterController())->handle($method, $rest),
     'tasks'     => (new TaskController())->handle($method, $rest),
+    'users'     => (new UserController())->handle($method, $rest),
     default     => errorResponse("Unknown endpoint: /$resource", 404),
 };
