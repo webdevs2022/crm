@@ -1609,43 +1609,7 @@ $user = Auth::user();
       // ═══════════════════════════════════════════════════════════════
       // DEMO USERS — mirrors DB seed
       // ═══════════════════════════════════════════════════════════════
-      const DEMO_USERS = [
-        {
-          id: 1,
-          name: "Dr. Owner",
-          email: "owner@crm.com",
-          pw: "password",
-          role: "owner",
-        },
-        {
-          id: 2,
-          name: "Admin User",
-          email: "admin@crm.com",
-          pw: "password",
-          role: "admin",
-        },
-        {
-          id: 3,
-          name: "Accounts Manager",
-          email: "accounts@crm.com",
-          pw: "password",
-          role: "accounts",
-        },
-        {
-          id: 4,
-          name: "Sarah Coordinator",
-          email: "sarah@crm.com",
-          pw: "password",
-          role: "coordinator",
-        },
-        {
-          id: 5,
-          name: "John Coordinator",
-          email: "john@crm.com",
-          pw: "password",
-          role: "coordinator",
-        },
-      ];
+
 
       const MAT = {
         osce: "OSCE",
@@ -1709,6 +1673,7 @@ $user = Auth::user();
           D.payments = p || [];
           D.tasks = tk || [];
           D.users = u || [];
+          if (CU && !D.users.some(ux => ux.id === CU.id)) D.users.push(CU);
           
           // Group workflow steps by topic_id
           D.workflow = {};
@@ -1792,7 +1757,8 @@ $user = Auth::user();
         return D.topics.find((t) => t.id == id)?.title || "—";
       }
       function uname(id) {
-        return DEMO_USERS.find((u) => u.id == id)?.name || "—";
+        if (CU && CU.id == id) return CU.name;
+        return D.users.find((u) => u.id == id)?.name || "—";
       }
       function topics4(cid) {
         return D.topics
@@ -2161,7 +2127,7 @@ $user = Auth::user();
       function cCard(c) {
         const p = calcProg(c.id),
           ct = topics4(c.id);
-        const coord = DEMO_USERS.find((u) => u.id === c.coordinator_id);
+        const coord = D.users.find((u) => u.id === c.coordinator_id);
         const pCol =
           p.overall >= 80
             ? "var(--green)"
@@ -2219,7 +2185,7 @@ $user = Auth::user();
 
       function openCF(id) {
         const c = id ? D.courses.find((x) => x.id == id) : null;
-        const co = DEMO_USERS.filter((u) => u.role === "coordinator")
+        const co = D.users.filter((u) => u.role === "coordinator")
           .map(
             (u) =>
               `<option value="${u.id}" ${c?.coordinator_id == u.id ? "selected" : ""}>${u.name}</option>`,
@@ -2325,7 +2291,7 @@ $user = Auth::user();
         <span><i class="bi bi-tag"></i>${c.category || "—"}</span>
         <span><i class="bi bi-camera-video"></i>${ts.length} Topics</span>
         <span><i class="bi bi-clock"></i>${Math.floor(totM / 60)}h ${totM % 60}m</span>
-        <span><i class="bi bi-person"></i>${DEMO_USERS.find((u) => u.id === c.coordinator_id)?.name || "—"}</span>
+        <span><i class="bi bi-person"></i>${D.users.find((u) => u.id === c.coordinator_id)?.name || "—"}</span>
       </div>
       <div style="margin-top:10px">
         <div class="pb-lbl"><span style="font-size:12px">Overall = Lecture(${p.lP}%)×40 + Material(${p.mP}%)×30 + Contract(${p.cP}%)×30</span><span style="font-size:15px;font-weight:800;color:${pCol}">${p.overall}%</span></div>
@@ -2553,10 +2519,14 @@ $user = Auth::user();
         : `<div class="tw"><table class="ct"><thead><tr><th>#</th><th>Lecture</th><th>Type</th><th>Faculty</th><th>Workflow Progress</th><th>Action</th></tr></thead><tbody>
     ${ts
       .map((t) => {
-        const wf = D.workflow[t.id],
-          wd = wf ? wf.filter((s) => s.done).length : 0,
-          wt = wf ? wf.length : 0,
+        const wf = D.workflow[t.id];
+        let wd = 0, wt = 0, pct = 0;
+        if (wf) {
+          const visible = wf.filter(s => s.k !== 'reminder_sent' || s.done || reminderState[t.id]);
+          wd = visible.filter(s => s.done).length;
+          wt = visible.length;
           pct = wt ? Math.round((wd / wt) * 100) : 0;
+        }
         return `<tr><td class="mono tx-a">${t.sort_order}</td>
       <td><div style="font-weight:500">${t.title}</div><div style="font-size:11.5px;color:var(--text3)">${fmtD(t.scheduled_at)}${t.reschedule_reason ? ` | 🔄 ${t.reschedule_reason}` : ""}</div></td>
       <td>${badge(t.lecture_type, t.lecture_type)}</td><td style="font-size:13px;color:var(--text2)">${fname(t.faculty_id)}</td>
@@ -2592,30 +2562,26 @@ $user = Auth::user();
         const t = D.topics.find((x) => x.id == tid);
         if (!t) return;
         const wf = D.workflow[tid] || [];
-        const dn = wf.filter((s) => s.done).length;
-        const pct = wf.length ? Math.round((dn / wf.length) * 100) : 0;
-        const canEdit = hasRole("admin");
-
         // Sequential Display Logic with skipping
         let displayWf = [];
-        let nextIdx = -1;
-        
         wf.forEach((s, i) => {
            let skip = false;
            if (s.k === 'reminder_sent') {
-              const prev = wf[i-1];
               // Only show if: 1. It's already done OR 2. Reminder was explicitly requested
-              if (!s.done && (!prev.done && !reminderState[tid])) skip = true;
+              if (!s.done && !reminderState[tid]) skip = true;
            }
            if (!skip) displayWf.push(s);
         });
         
-        nextIdx = displayWf.findIndex(s => !s.done);
+        const visibleDn = displayWf.filter(s => s.done).length;
+        const visibleTot = displayWf.length;
+        const pct = visibleTot ? Math.round((visibleDn / visibleTot) * 100) : 0;
+        const nextIdx = displayWf.findIndex(s => !s.done);
         
         OM({
           icon: "bi-diagram-3",
           title: t.title,
-          sub: `<div style="margin-bottom:6px">${t.lecture_type === "live" ? "Live Event" : "Recording"} Workflow · ${dn}/${wf.length} Tasks Complete</div>
+          sub: `<div style="margin-bottom:6px">${t.lecture_type === "live" ? "Live Event" : "Recording"} Workflow · ${visibleDn}/${visibleTot} Tasks Complete</div>
                 <div style="font-size:11px;color:var(--text3);background:var(--bg3);padding:5px 9px;border-radius:6px;border:1px solid var(--border)">
                   <strong>Prerequisites:</strong> Course Created &rarr; Coordinator Assigned &rarr; Topic Added
                 </div>`,
@@ -2635,11 +2601,11 @@ $user = Auth::user();
         // SPECIAL BRANCHING: Unlock 2.1 if "No" was clicked on 2
         if (s.k === 'reminder_sent' && reminderState[tid] && !isDone) {
            isLocked = false;
-           isNext = true; // Highlight this as the next action
+           isNext = true; 
         }
 
         return `
-        <div class="wfs ${isNext ? 'active-step' : ''}" style="opacity: ${isLocked ? '0.4' : '1'}">
+        <div class="wfs ${isNext ? 'active-step' : ''}" style="opacity: ${isLocked ? '0.4' : '1'}" id="ws-${tid}-${s.k}">
           <div class="wfd ${isDone ? 'done' : ''} ${isNext ? 'pulse' : ''}">
             <i class="bi ${isDone ? 'bi-check-lg' : 'bi-circle'}"></i>
           </div>
@@ -2650,7 +2616,7 @@ $user = Auth::user();
                  ? `<span style="color:var(--green)"><i class="bi bi-calendar-check"></i> Done ${fmtD(s.at)} by ${s.by || 'Admin'}</span>` 
                  : !isLocked 
                    ? `<div style="margin-top:10px;display:flex;gap:8px">
-                        <button class="btn bp bsm" onclick="togWF(${tid},'${s.k}')">Yes, Done</button>
+                        <button class="btn bp bsm" onclick="if(['reply_received','reminder_sent'].includes('${s.k}')) reminderState[${tid}]=false; togWF(${tid},'${s.k}')">Yes, Done</button>
                         ${s.k === 'reply_received' 
                           ? `<button class="btn bg bsm" onclick="
                               reminderState[${tid}]=true;
